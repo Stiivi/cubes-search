@@ -1,0 +1,102 @@
+"""Slicer tool
+
+    For more information run: slicer --help
+    
+    Author: Stefan Urbanek <stefan.urbanek@gmail.com>
+    Date: 2011-01
+"""
+
+import argparse
+import sys
+import cubes
+import cubes_search
+import sqlalchemy
+import ConfigParser
+
+config = None
+model = None
+cube = None
+view_name = None
+schema = None
+connection = None
+locales = None
+
+def configure(path, cube_name = None):
+    global config
+    global connection, schema, view_name
+    global model, cube, locales
+    
+    config = ConfigParser.SafeConfigParser()
+    try:
+        config.read(path)
+    except Exception as e:
+        raise Exception("Unable to load config: %s" % e)
+
+    model_path = config.get("model", "path")
+    try:
+        model = cubes.load_model(model_path)
+    except:
+        if not model_path:
+            model_path = 'unknown path'
+        raise Exception("Unable to load model from %s" % model_path)
+
+    if not cube_name:
+        cube_name = config.get("model","cube")
+
+    cube = model.cube(cube_name)
+
+    if config.has_option("db","view_prefix"):
+        prefix = config.get("db", "view_prefix")
+    else:
+        prefix = ""
+    if config.has_option("db","view_suffix"):
+        suffix = config.get("db", "view_suffix")
+    else:
+        suffix = ""
+
+    view_name = prefix + cube_name + suffix
+
+    if config.has_option("db","schema"):
+        schema = config.get("db","schema")
+    else:
+        schema = None
+
+    dburl = config.get("db", "url")
+    engine = sqlalchemy.create_engine(dburl)
+    connection = engine.connect()
+
+    locales_string = config.get("model", "locales")
+
+    if locales_string:
+        locales = locales_string.split(',')
+    else:
+        locales = []
+
+def create_index(args):
+    """Create index"""
+    configure(args.config)
+
+    if not locales:
+        raise Exception("No locales specified in configuration in the [model] section")
+
+    browser = cubes.backends.SQLBrowser(cube, connection, 
+                                        view_name, schema)
+    indexer = cubes_search.sphinx.XMLSphinxIndexer(browser)
+    indexer.index(locales, labels_only = args.labels_only)
+
+################################################################################
+# Main code
+
+parser = argparse.ArgumentParser(description='Cubes tool')
+subparsers = parser.add_subparsers(title='commands')
+
+subparser = subparsers.add_parser('index', help = "create search index")
+subparser.add_argument('config', help='server confuguration .ini file')
+subparser.add_argument('cube', help='cube name')
+subparser.set_defaults(func=create_index)
+subparser.add_argument('-l', '--locale', help='locale to index')
+subparser.add_argument('--labels-only', action='store_true')
+
+args = parser.parse_args(sys.argv[1:])
+
+args.func(args)

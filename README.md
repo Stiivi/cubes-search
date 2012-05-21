@@ -1,19 +1,24 @@
-Cubes - Online Analytical Processing Framework for Python
+Cubes Search
+============
+Search backend for Cubes - Lightweight Python OLAP
 
-ABOUT
+About
+-----
 
 Experimental Search backend - provides funcitonality for indexing and searching
 
-Contains python API from Sphinx search engine: http://sphinxsearch.com/
+Cubes Project:
 
-Copyright © 2001-2010 Andrew Aksyonoff
-Copyright © 2008-2010 Sphinx Technologies Inc, http://sphinxsearch.com
+* [github](https://github.com/Stiivi/cubes)
+* [documentation](http://packages.python.org/cubes)
 
-INSTALLATION
+Installation
+------------
 
     python setup.py install
     
-USAGE
+Usage
+-----
 
 To create search index use following source in your sphinx.config:
 
@@ -24,6 +29,9 @@ To create search index use following source in your sphinx.config:
     }
 
 
-AUTHOR
+Author
+------
 
 Stefan Urbanek <stefan.urbanek@gmail.com>
+
+See AUTHORS for more information about credits for included packages.

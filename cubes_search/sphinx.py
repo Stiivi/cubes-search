@@ -4,7 +4,6 @@ WARNING: This is just preliminary prototype, use at your own risk of having your
 later.
 
 """
-import cubes.browser as browser
 import cubes
 import sphinxapi
 import xml.sax.saxutils
@@ -25,24 +24,23 @@ class SphinxSearchResult(object):
         self.total_found = 0
         self.error = None
         self.warning = None
-        
+
     # @property
     # def dimensions(self):
     #     return self.dimension_paths.keys()
-        
+
     def values_old(self, dimension, zipped = False):
         """Return values of search result.
-        
-        :Attributes:
-        * `zipped` - (experimental, might become standard) if ``True`` then returnstuples: 
-        (`path`, `record`)
 
+        :Attributes:
+        * `zipped` - (experimental, might become standard) if ``True`` then
+          return tuples: (`path`, `record`)
         """
         cell = self.browser.full_cube()
         if dimension in self.dimension_paths:
             paths = self.dimension_paths[dimension]
 
-            cut = cubes.browser.SetCut(dimension, paths)
+            cut = cubes.SetCut(dimension, paths)
             cell.cuts = [cut]
             values = cell.values(dimension)
             if zipped:
@@ -57,21 +55,22 @@ class SphinxSearchResult(object):
         for match in self.matches:
             if match["dimension"] == dimension:
                 dup = dict(match)
-                
+
                 path_str = match["path"]
-                path = cubes.browser.path_from_string(path_str)
+                path = cubes.path_from_string(path_str)
                 dup["path"] = path
                 dup["path_string"] = path_str
                 matches.append(dup)
-                
+
         return matches
 
-    def values(self, dimension, zipped = False):
+    def values(self, dimension, zipped=False):
         """Return values of search result.
 
-        :Attributes:
-        * `zipped` - (experimental, might become standard) if ``True`` then returnstuples: 
-        (`path`, `record`)
+        Attributes:
+
+        * `zipped` - (experimental, might become standard) if ``True`` then
+          returns tuples: (`path`, `record`)
 
         """
 
@@ -82,13 +81,13 @@ class SphinxSearchResult(object):
         for match in self.matches:
             if match["dimension"] == dimension:
                 path_str = match["path"]
-                path = cubes.browser.path_from_string(path_str)
+                path = cubes.path_from_string(path_str)
                 paths.append(path)
 
         if paths:
-            cut = cubes.browser.SetCut(dimension, paths)
+            cut = cubes.SetCut(dimension, paths)
             cell.cuts = [cut]
-            values = cell.values(dimension)
+            values = self.browser.values(cell, dimension)
             if zipped:
                 # return 0
                 return [ {"meta": r[0], "record":r[1]} for r in zip(self.matches, values) ]
@@ -100,9 +99,9 @@ class SphinxSearchResult(object):
 
 class SphinxSearcher(object):
     """docstring for SphinxSearch"""
-    def __init__(self, browser, host = None, port = None, **config):
+    def __init__(self, browser, host=None, port=None, **config):
         """Create sphing search object.
-        
+
         :Parameters:
             * `browser` - Aggregation browser
             * `host` - host where searchd is running (optional)
@@ -113,11 +112,11 @@ class SphinxSearcher(object):
         self.host = host
         self.port = port
         self.config = config
-        
+
     def _dimension_tag(self, dimension):
         """Private method to get integer value from dimension name. Currently it uses
         index in ordered list of dimensions of the browser's cube"""
-        
+
         tag = None
         tdim = self.browser.cube.dimension(dimension)
         for i, dim in enumerate(self.browser.cube.dimensions):
@@ -126,10 +125,12 @@ class SphinxSearcher(object):
                 break
         return tag
 
-    def search(self, query, dimension = None, locale_tag = None):
+    def search(self, query, dimension=None, locale_tag=None):
         """Peform search using Sphinx. If `dimension` is set then only the one dimension will
         be searched."""
-        
+        print "SEARCH IN %s QUERY '%s' LOCALE:%s" % (str(dimension), query,
+                locale_tag)
+
         sphinx = sphinxapi.SphinxClient(**self.config)
 
         if self.host:
@@ -149,7 +150,7 @@ class SphinxSearcher(object):
         sphinx.SetLimits(0, 1000)
 
         index_name = self.browser.cube.name
-        
+
         sphinx.SetSortMode(sphinxapi.SPH_SORT_ATTR_ASC, "level_label")
         results = sphinx.Query(query, index = str(index_name))
 
@@ -184,10 +185,10 @@ class SphinxSearcher(object):
         #         result.dimension_paths[dim].append(path)
         #     else:
         #         result.dimension_paths[dim] = [path]
-        
+
         result.error = sphinx.GetLastError()
         result.warning = sphinx.GetLastWarning()
-        
+
         return result
 
 class XMLSphinxIndexer(indexer.Indexer):
@@ -221,30 +222,30 @@ class XMLSphinxIndexer(indexer.Indexer):
         self.output.startElement( u'sphinx:docset', EMPTY_ATTRS)
 
         # START schema
-        self.output.startElement( u'sphinx:schema', EMPTY_ATTRS)  
+        self.output.startElement( u'sphinx:schema', EMPTY_ATTRS)
 
         fields = ["value"]
 
         attributes = [
                       ("locale_tag", "int"),
-                      ("dimension", "string"), 
+                      ("dimension", "string"),
                       ("dimension_tag", "int"),
-                        ("level", "string"), 
-                        ("depth", "int"), 
-                        ("path", "string"), 
-                        ("attribute", "string"), 
-                        ("attribute_value", "string"), 
-                        ("level_key", "string"), 
+                        ("level", "string"),
+                        ("depth", "int"),
+                        ("path", "string"),
+                        ("attribute", "string"),
+                        ("attribute_value", "string"),
+                        ("level_key", "string"),
                         ("level_label", "string")]
 
         for field in fields:
             attrs = AttributesImpl({"name":field})
-            self.output.startElement( u'sphinx:field', attrs)
+            self.output.startElement(u'sphinx:field', attrs)
             self.output.endElement(u'sphinx:field')
 
         for (name, ftype) in attributes:
             attrs = AttributesImpl({"name":name, "type":ftype})
-            self.output.startElement( u'sphinx:attr', attrs)
+            self.output.startElement(u'sphinx:attr', attrs)
             self.output.endElement(u'sphinx:attr')
 
         # END schema
@@ -285,15 +286,15 @@ class SQLSphinxIndexer(indexer.Indexer):
         self.table_name = table_name
 
     def initialize(self):
-        table = sqlalchemy.Table(self.table_name, self.metadata, autoload = False, 
+        table = sqlalchemy.Table(self.table_name, self.metadata, autoload = False,
                                  schema = self.schema)
 
         if table.exists():
             table.drop()
-            
+
         sequence = sqlalchemy.schema.Sequence(self.table_name + '_seq', optional = True)
         table = sqlalchemy.Table(self.table_name, self.metadata, schema = self.schema)
-        
+
         table.append_column(Column('id', Integer, sequence, primary_key=True))
         table.append_column(Column('dimension', String))
         table.append_column(Column('dimension_tag', Integer))
@@ -305,7 +306,7 @@ class SQLSphinxIndexer(indexer.Indexer):
         table.append_column(Column('level_label', String))
 
         table.create()
-        
+
         self.insert = table.insert()
         self.buffer = []
         self.buffer_size = 1000
@@ -315,12 +316,12 @@ class SQLSphinxIndexer(indexer.Indexer):
 
         if len(self.buffer) >= self.buffer_size:
             self.flush()
-            
+
     def flush(self):
         if self.buffer:
             self.connection.execute(self.insert, self.buffer)
             self.buffer = []
-            
+
         # self.insert.values(irecord)
 
     def finalize(self):

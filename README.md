@@ -2,6 +2,8 @@ Cubes Search
 ============
 Search backend for Cubes - Lightweight Python OLAP
 
+Requires cubes 0.10 and higher.
+
 About
 -----
 
@@ -25,7 +27,7 @@ To create search index use following source in your sphinx.config:
     source dimensions
     {
     	type					= xmlpipe2
-        xmlpipe_command = python slicer-search index path_to_slicer.ini cube_name
+        xmlpipe_command = slicer-indexer slicer.ini cube_name
     }
 
 

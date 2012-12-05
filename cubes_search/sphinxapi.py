@@ -1,11 +1,11 @@
 #
-# $Id: sphinxapi.py 2376 2010-06-29 14:08:19Z shodan $
+# $Id: sphinxapi.py 3436 2012-10-08 09:17:18Z kevg $
 #
 # Python version of Sphinx searchd client (Python API)
 #
 # Copyright (c) 2006, Mike Osadnik
-# Copyright (c) 2006-2010, Andrew Aksyonoff
-# Copyright (c) 2008-2010, Sphinx Technologies Inc
+# Copyright (c) 2006-2012, Andrew Aksyonoff
+# Copyright (c) 2008-2012, Sphinx Technologies Inc
 # All rights reserved
 #
 # This program is free software; you can redistribute it and/or modify
@@ -27,13 +27,15 @@ SEARCHD_COMMAND_EXCERPT		= 1
 SEARCHD_COMMAND_UPDATE		= 2
 SEARCHD_COMMAND_KEYWORDS	= 3
 SEARCHD_COMMAND_PERSIST		= 4
+SEARCHD_COMMAND_STATUS		= 5
 SEARCHD_COMMAND_FLUSHATTRS	= 7
 
 # current client-side command implementation versions
-VER_COMMAND_SEARCH		= 0x117
-VER_COMMAND_EXCERPT		= 0x102
+VER_COMMAND_SEARCH		= 0x119
+VER_COMMAND_EXCERPT		= 0x104
 VER_COMMAND_UPDATE		= 0x102
 VER_COMMAND_KEYWORDS	= 0x100
+VER_COMMAND_STATUS		= 0x100
 VER_COMMAND_FLUSHATTRS	= 0x100
 
 # known searchd status codes
@@ -60,7 +62,8 @@ SPH_RANK_PROXIMITY		= 4
 SPH_RANK_MATCHANY		= 5
 SPH_RANK_FIELDMASK		= 6
 SPH_RANK_SPH04			= 7
-SPH_RANK_TOTAL			= 8
+SPH_RANK_EXPR			= 8
+SPH_RANK_TOTAL			= 9
 
 # known sort modes
 SPH_SORT_RELEVANCE		= 0
@@ -84,7 +87,8 @@ SPH_ATTR_BOOL			= 4
 SPH_ATTR_FLOAT			= 5
 SPH_ATTR_BIGINT			= 6
 SPH_ATTR_STRING			= 7
-SPH_ATTR_MULTI			= 0X40000000L
+SPH_ATTR_MULTI			= 0X40000001L
+SPH_ATTR_MULTI64		= 0X40000002L
 
 SPH_ATTR_TYPES = (SPH_ATTR_NONE,
 				  SPH_ATTR_INTEGER,
@@ -94,7 +98,8 @@ SPH_ATTR_TYPES = (SPH_ATTR_NONE,
 				  SPH_ATTR_FLOAT,
 				  SPH_ATTR_BIGINT,
 				  SPH_ATTR_STRING,
-				  SPH_ATTR_MULTI)
+				  SPH_ATTR_MULTI,
+				  SPH_ATTR_MULTI64)
 
 # known grouping functions
 SPH_GROUPBY_DAY	 		= 0
@@ -134,7 +139,9 @@ class SphinxClient:
 		self._anchor		= {}							# geographical anchor point
 		self._indexweights	= {}							# per-index weights
 		self._ranker		= SPH_RANK_PROXIMITY_BM25		# ranking mode
+		self._rankexpr		= ''							# ranking expression for SPH_RANK_EXPR
 		self._maxquerytime	= 0								# max query time, milliseconds (default is 0, do not limit)
+		self._timeout = 1.0										# connection timeout
 		self._fieldweights	= {}							# per-field-name weights
 		self._overrides		= {}							# per-query attribute values overrides
 		self._select		= '*'							# select-list (attributes or expressions, with optional aliases)
@@ -173,11 +180,19 @@ class SphinxClient:
 		elif host.startswith('unix://'):
 			self._path = host[7:]
 			return
-		assert(isinstance(port, int))
 		self._host = host
-		self._port = port
+		if isinstance(port, int):
+			assert(port>0 and port<65536)
+			self._port = port
 		self._path = None
 
+	def SetConnectTimeout ( self, timeout ):
+		"""
+		Set connection timeout ( float second )
+		"""
+		assert (isinstance(timeout, float))
+		# set timeout to 0 make connaection non-blocking that is wrong so timeout got clipped to reasonable minimum
+		self._timeout = max ( 0.001, timeout )
 					
 	def _Connect (self):
 		"""
@@ -205,6 +220,7 @@ class SphinxClient:
 				addr = ( self._host, self._port )
 				desc = '%s;%s' % addr
 			sock = socket.socket ( af, socket.SOCK_STREAM )
+			sock.settimeout ( self._timeout )
 			sock.connect ( addr )
 		except socket.error, msg:
 			if sock:
@@ -277,6 +293,21 @@ class SphinxClient:
 		return response
 
 
+	def _Send ( self, sock, req ):
+		"""
+		INTERNAL METHOD, DO NOT CALL. send request to searchd server.
+		"""
+		total = 0
+		while True:
+			sent = sock.send ( req[total:] )
+			if sent<=0:
+				break
+				
+			total = total + sent
+		
+		return total
+		
+
 	def SetLimits (self, offset, limit, maxmatches=0, cutoff=0):
 		"""
 		Set offset and count into result set, and optionally set max-matches and cutoff limits.
@@ -308,12 +339,13 @@ class SphinxClient:
 		self._mode = mode
 
 
-	def SetRankingMode (self, ranker):
+	def SetRankingMode ( self, ranker, rankexpr='' ):
 		"""
 		Set ranking mode.
 		"""
 		assert(ranker>=0 and ranker<SPH_RANK_TOTAL)
 		self._ranker = ranker
+		self._rankexpr = rankexpr
 
 
 	def SetSortMode ( self, mode, clause='' ):
@@ -333,7 +365,7 @@ class SphinxClient:
 		"""
 		assert(isinstance(weights, list))
 		for w in weights:
-			assert(isinstance(w, int))
+			AssertUInt32 ( w )
 		self._weights = weights
 
 
@@ -344,7 +376,7 @@ class SphinxClient:
 		assert(isinstance(weights,dict))
 		for key,val in weights.items():
 			assert(isinstance(key,str))
-			assert(isinstance(val,int))
+			AssertUInt32 ( val )
 		self._fieldweights = weights
 
 
@@ -355,7 +387,7 @@ class SphinxClient:
 		assert(isinstance(weights,dict))
 		for key,val in weights.items():
 			assert(isinstance(key,str))
-			assert(isinstance(val,int))
+			AssertUInt32(val)
 		self._indexweights = weights
 
 
@@ -380,7 +412,7 @@ class SphinxClient:
 		assert iter(values)
 
 		for value in values:
-			assert(isinstance(value, int))
+			AssertInt32 ( value )
 
 		self._filters.append ( { 'type':SPH_FILTER_VALUES, 'attr':attribute, 'exclude':exclude, 'values':values } )
 
@@ -391,8 +423,8 @@ class SphinxClient:
 		Only match records if 'attribute' value is beetwen 'min_' and 'max_' (inclusive).
 		"""
 		assert(isinstance(attribute, str))
-		assert(isinstance(min_, int))
-		assert(isinstance(max_, int))
+		AssertInt32(min_)
+		AssertInt32(max_)
 		assert(min_<=max_)
 
 		self._filters.append ( { 'type':SPH_FILTER_RANGE, 'attr':attribute, 'exclude':exclude, 'min':min_, 'max':max_ } )
@@ -500,7 +532,12 @@ class SphinxClient:
 		Add query to batch.
 		"""
 		# build request
-		req = [pack('>5L', self._offset, self._limit, self._mode, self._ranker, self._sort)]
+		req = []
+		req.append(pack('>4L', self._offset, self._limit, self._mode, self._ranker))
+		if self._ranker==SPH_RANK_EXPR:
+			req.append(pack('>L', len(self._rankexpr)))
+			req.append(self._rankexpr)
+		req.append(pack('>L', self._sort))
 		req.append(pack('>L', len(self._sortby)))
 		req.append(self._sortby)
 
@@ -514,6 +551,7 @@ class SphinxClient:
 		req.append(pack('>L', len(self._weights)))
 		for w in self._weights:
 			req.append(pack('>L', w))
+		assert(isinstance(index,str))
 		req.append(pack('>L', len(index)))
 		req.append(index)
 		req.append(pack('>L',1)) # id64 range marker
@@ -570,6 +608,7 @@ class SphinxClient:
 			req.append ( pack ('>L',len(field)) + field + pack ('>L',weight) )
 
 		# comment
+		comment = str(comment)
 		req.append ( pack('>L',len(comment)) + comment )
 
 		# attribute overrides
@@ -611,9 +650,9 @@ class SphinxClient:
 			return None
 
 		req = ''.join(self._reqs)
-		length = len(req)+4
-		req = pack('>HHLL', SEARCHD_COMMAND_SEARCH, VER_COMMAND_SEARCH, length, len(self._reqs))+req
-		sock.send(req)
+		length = len(req)+8
+		req = pack('>HHLLL', SEARCHD_COMMAND_SEARCH, VER_COMMAND_SEARCH, length, 0, len(self._reqs))+req
+		self._Send ( sock, req )
 
 		response = self._GetResponse(sock, VER_COMMAND_SEARCH)
 		if not response:
@@ -707,13 +746,22 @@ class SphinxClient:
 						if slen>0:
 							match['attrs'][attrs[i][0]] = response[p:p+slen]
 						p += slen-4
-					elif attrs[i][1] == (SPH_ATTR_MULTI | SPH_ATTR_INTEGER):
+					elif attrs[i][1] == SPH_ATTR_MULTI:
 						match['attrs'][attrs[i][0]] = []
 						nvals = unpack('>L', response[p:p+4])[0]
 						p += 4
 						for n in range(0,nvals,1):
 							match['attrs'][attrs[i][0]].append(unpack('>L', response[p:p+4])[0])
 							p += 4
+						p -= 4
+					elif attrs[i][1] == SPH_ATTR_MULTI64:
+						match['attrs'][attrs[i][0]] = []
+						nvals = unpack('>L', response[p:p+4])[0]
+						nvals = nvals/2
+						p += 4
+						for n in range(0,nvals,1):
+							match['attrs'][attrs[i][0]].append(unpack('>q', response[p:p+8])[0])
+							p += 8
 						p -= 4
 					else:
 						match['attrs'][attrs[i][0]] = unpack('>L', response[p:p+4])[0]
@@ -771,6 +819,7 @@ class SphinxClient:
 		opts.setdefault('limit_words', 0)
 		opts.setdefault('around', 5)
 		opts.setdefault('start_passage_id', 1)
+		opts.setdefault('passage_boundary', 'none')
 
 		# build request
 		# v.1.0 req
@@ -784,6 +833,8 @@ class SphinxClient:
 		if opts.get('force_all_words'):	flags |= 64
 		if opts.get('load_files'):		flags |= 128
 		if opts.get('allow_empty'):		flags |= 256
+		if opts.get('emit_zones'):		flags |= 512
+		if opts.get('load_files_scattered'):	flags |= 1024
 		
 		# mode=0, flags
 		req = [pack('>2L', 0, flags)]
@@ -814,6 +865,8 @@ class SphinxClient:
 		req.append(pack('>L', int(opts['start_passage_id'])))
 		req.append(pack('>L', len(opts['html_strip_mode'])))
 		req.append((opts['html_strip_mode']))
+		req.append(pack('>L', len(opts['passage_boundary'])))
+		req.append((opts['passage_boundary']))
 
 		# documents
 		req.append(pack('>L', len(docs)))
@@ -831,7 +884,7 @@ class SphinxClient:
 
 		# add header
 		req = pack('>2HL', SEARCHD_COMMAND_EXCERPT, VER_COMMAND_EXCERPT, length)+req
-		wrote = sock.send(req)
+		self._Send ( sock, req )
 
 		response = self._GetResponse(sock, VER_COMMAND_EXCERPT )
 		if not response:
@@ -876,30 +929,34 @@ class SphinxClient:
 		for attr in attrs:
 			assert ( isinstance ( attr, str ) )
 		for docid, entry in values.items():
-			assert ( isinstance ( docid, int ) )
+			AssertUInt32(docid)
 			assert ( isinstance ( entry, list ) )
 			assert ( len(attrs)==len(entry) )
 			for val in entry:
 				if mva:
 					assert ( isinstance ( val, list ) )
 					for vals in val:
-						assert ( isinstance ( vals, int ))
+						AssertInt32(vals)
 				else:
-					assert ( isinstance ( val, int ) )
+					AssertInt32(val)
 
 		# build request
 		req = [ pack('>L',len(index)), index ]
 
 		req.append ( pack('>L',len(attrs)) )
+		mva_attr = 0
+		if mva: mva_attr = 1
 		for attr in attrs:
 			req.append ( pack('>L',len(attr)) + attr )
-			req.append ( pack('>L', 1 if mva else 0 ) )
+			req.append ( pack('>L', mva_attr ) )
 
 		req.append ( pack('>L',len(values)) )
 		for docid, entry in values.items():
 			req.append ( pack('>Q',docid) )
 			for val in entry:
-				req.append ( pack('>L',count(val) if mva else val) )
+				val_len = val
+				if mva: val_len = len ( val )
+				req.append ( pack('>L',val_len ) )
 				if mva:
 					for vals in val:
 						req.append ( pack ('>L',vals) )
@@ -912,7 +969,7 @@ class SphinxClient:
 		req = ''.join(req)
 		length = len(req)
 		req = pack ( '>2HL', SEARCHD_COMMAND_UPDATE, VER_COMMAND_UPDATE, length ) + req
-		wrote = sock.send ( req )
+		self._Send ( sock, req )
 
 		response = self._GetResponse ( sock, VER_COMMAND_UPDATE )
 		if not response:
@@ -945,7 +1002,7 @@ class SphinxClient:
 		req = ''.join(req)
 		length = len(req)
 		req = pack ( '>2HL', SEARCHD_COMMAND_KEYWORDS, VER_COMMAND_KEYWORDS, length ) + req
-		wrote = sock.send ( req )
+		self._Send ( sock, req )
 
 		response = self._GetResponse ( sock, VER_COMMAND_KEYWORDS )
 		if not response:
@@ -984,6 +1041,40 @@ class SphinxClient:
 
 		return res
 
+	def Status ( self ):
+		"""
+		Get the status
+		"""
+
+		# connect, send query, get response
+		sock = self._Connect()
+		if not sock:
+			return None
+
+		req = pack ( '>2HLL', SEARCHD_COMMAND_STATUS, VER_COMMAND_STATUS, 4, 1 )
+		self._Send ( sock, req )
+
+		response = self._GetResponse ( sock, VER_COMMAND_STATUS )
+		if not response:
+			return None
+
+		# parse response
+		res = []
+
+		p = 8
+		max_ = len(response)
+
+		while p<max_:
+			length = unpack ( '>L', response[p:p+4] )[0]
+			k = response[p+4:p+length+4]
+			p += 4+length
+			length = unpack ( '>L', response[p:p+4] )[0]
+			v = response[p+4:p+length+4]
+			p += 4+length
+			res += [[k, v]]
+
+		return res
+
 	### persistent connections
 
 	def Open(self):
@@ -997,7 +1088,7 @@ class SphinxClient:
 
 		# command, command version = 0, body length = 4, body = 1
 		request = pack ( '>hhII', SEARCHD_COMMAND_PERSIST, 0, 4, 1 )
-		server.send ( request )
+		self._Send ( server, request )
 		
 		self._socket = server
 		return True
@@ -1019,7 +1110,7 @@ class SphinxClient:
 			return -1
 
 		request = pack ( '>hhI', SEARCHD_COMMAND_FLUSHATTRS, VER_COMMAND_FLUSHATTRS, 0 ) # cmd, ver, bodylen
-		sock.send ( request )
+		self._Send ( sock, request )
 
 		response = self._GetResponse ( sock, VER_COMMAND_FLUSHATTRS )
 		if not response or len(response)!=4:
@@ -1029,6 +1120,14 @@ class SphinxClient:
 		tag = unpack ( '>L', response[0:4] )[0]
 		return tag
 
+def AssertInt32 ( value ):
+	assert(isinstance(value, (int, long)))
+	assert(value>=-2**32-1 and value<=2**32-1)
+
+def AssertUInt32 ( value ):
+	assert(isinstance(value, (int, long)))
+	assert(value>=0 and value<=2**32-1)
+		
 #
-# $Id: sphinxapi.py 2376 2010-06-29 14:08:19Z shodan $
+# $Id: sphinxapi.py 3436 2012-10-08 09:17:18Z kevg $
 #

@@ -1,0 +1,58 @@
+"""Sphinx indexer
+
+    For more information run: slicer-indexer --help
+
+    Author: Stefan Urbanek <stefan.urbanek@gmail.com>
+    Date: 2011-01
+"""
+
+import argparse
+import sys
+import ConfigParser
+
+import cubes
+import cubes_search
+
+def read_config(path):
+    """Read the configuration file."""
+    config = ConfigParser.SafeConfigParser()
+    try:
+        config.read(path)
+    except Exception as e:
+        raise Exception("Unable to load config: %s" % e)
+
+    return config
+
+def create_index(args):
+    """Create index"""
+    config = read_config(args.config)
+    context = cubes.workspace.create_slicer_context(config)
+    model = context["model"]
+    cube = model.cube(args.cube)
+
+    backend = context["backend"]
+    workspace = backend.create_workspace(model,
+                                         **context["workspace_options"])
+
+    browser = workspace.browser(cube)
+    indexer = cubes_search.sphinx.XMLSphinxIndexer(browser)
+
+    locales = context["locales"]
+    if not locales:
+        locales = ["default"]
+
+    indexer.index(locales, labels_only=args.labels_only)
+
+################################################################################
+# Main code
+
+parser = argparse.ArgumentParser(description='Cubes indexer')
+
+parser.add_argument('config', help='server confuguration .ini file')
+parser.add_argument('cube', help='cube name')
+parser.set_defaults(func=create_index)
+parser.add_argument('--labels-only', action='store_true')
+
+args = parser.parse_args(sys.argv[1:])
+
+args.func(args)

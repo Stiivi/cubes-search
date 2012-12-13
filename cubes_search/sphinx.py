@@ -29,27 +29,6 @@ class SphinxSearchResult(object):
     # def dimensions(self):
     #     return self.dimension_paths.keys()
 
-    def values_old(self, dimension, zipped = False):
-        """Return values of search result.
-
-        :Attributes:
-        * `zipped` - (experimental, might become standard) if ``True`` then
-          return tuples: (`path`, `record`)
-        """
-        cell = self.browser.full_cube()
-        if dimension in self.dimension_paths:
-            paths = self.dimension_paths[dimension]
-
-            cut = cubes.SetCut(dimension, paths)
-            cell.cuts = [cut]
-            values = cell.values(dimension)
-            if zipped:
-                return zip(self.dimension_paths[dimension],values)
-            else:
-                return values
-        else:
-            return []
-
     def dimension_matches(self, dimension):
         matches = []
         for match in self.matches:
@@ -138,7 +117,7 @@ class SphinxSearcher(object):
 
         if dimension:
             tag = self._dimension_tag(dimension)
-            if not tag:
+            if tag is None:
                 raise Exception("No dimension %s" % dimension)
 
             sphinx.SetFilter("dimension_tag", [tag])

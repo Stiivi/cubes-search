@@ -130,7 +130,7 @@ class SphinxSearcher(object):
 
         index_name = self.browser.cube.name
 
-        sphinx.SetSortMode(sphinxapi.SPH_SORT_ATTR_ASC, "level_label")
+        sphinx.SetSortMode(sphinxapi.SPH_SORT_ATTR_ASC, "attribute_value")
         results = sphinx.Query(query, index = str(index_name))
 
         result = SphinxSearchResult(self.browser)

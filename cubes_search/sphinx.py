@@ -10,10 +10,17 @@ import xml.sax.saxutils
 from xml.sax.xmlreader import AttributesImpl
 from sqlalchemy import Table, Column, Integer, String, MetaData, ForeignKey
 import sqlalchemy
-import indexer
 import collections
 
 EMPTY_ATTRS = AttributesImpl({})
+
+def get_locale_tag(locale, locales):
+    try:
+        tag = locales.index(locale)
+    except ValueError:
+        tag = 0
+
+    return tag
 
 class SphinxSearchResult(object):
     def __init__(self, browser):
@@ -78,7 +85,7 @@ class SphinxSearchResult(object):
 
 class SphinxSearcher(object):
     """docstring for SphinxSearch"""
-    def __init__(self, browser, host=None, port=None, **config):
+    def __init__(self, browser, locales=None, host=None, port=None, **options):
         """Create sphing search object.
 
         :Parameters:
@@ -90,26 +97,27 @@ class SphinxSearcher(object):
         self.browser = browser
         self.host = host
         self.port = port
-        self.config = config
+        self.options = options
+        self.locales = locaels or []
 
     def _dimension_tag(self, dimension):
         """Private method to get integer value from dimension name. Currently it uses
         index in ordered list of dimensions of the browser's cube"""
 
-        tag = None
-        tdim = self.browser.cube.dimension(dimension)
-        for i, dim in enumerate(self.browser.cube.dimensions):
-            if dim.name == tdim.name:
-                tag = i
-                break
+        names = [dim.name for dim in self.browser.cube.dimensions]
+        try:
+            tag = names.index(str(dimension))
+        except ValueError:
+            tag = None
         return tag
 
-    def search(self, query, dimension=None, locale_tag=None):
+    def search(self, query, dimension=None, locale=None):
         """Peform search using Sphinx. If `dimension` is set then only the one dimension will
         be searched."""
         print "SEARCH IN %s QUERY '%s' LOCALE:%s" % (str(dimension), query,
-                locale_tag)
+                locale)
 
+        locale_tag = get_locale_tag(locale, self.locales)
         sphinx = sphinxapi.SphinxClient(**self.config)
 
         if self.host:
@@ -144,35 +152,14 @@ class SphinxSearcher(object):
 
         result.matches = [match["attrs"] for match in results["matches"]]
 
-        # 
-        # for match in results["matches"]:
-        #     attrs = match["attrs"]
-        #     key = tuple( (attrs["dimension"], attrs["path"]) )
-        # 
-        #     if key in grouped:
-        #         exmatch = grouped[key]
-        #         exattrs = exmatch["attributes"]
-        #         exattrs.append(attrs["attribute"])
-        #     else:
-        #         exmatch = {"attributes": [attrs["attribute"]]}
-        #         grouped[key] = exmatch
-        # 
-        # for (key, attrs) in grouped.items():
-        #     (dim, path_str) = key
-        #     path = cubes.browser.path_from_string(path_str)
-        #     if dim in result.dimension_paths:
-        #         result.dimension_paths[dim].append(path)
-        #     else:
-        #         result.dimension_paths[dim] = [path]
-
         result.error = sphinx.GetLastError()
         result.warning = sphinx.GetLastWarning()
 
         return result
 
-class XMLSphinxIndexer(indexer.Indexer):
+class XMLSphinxIndexer(object):
     """Create a SQL index for Sphinx"""
-    def __init__(self, browser, out = None):
+    def __init__(self, browser, config=None, out=None):
         """Creates a cube indexer - object that will provide xmlpipe2 data source for Sphinx
         search engine (http://sphinxsearch.com).
 
@@ -192,7 +179,7 @@ class XMLSphinxIndexer(indexer.Indexer):
         """
         super(XMLSphinxIndexer, self).__init__(browser)
 
-        self.output = xml.sax.saxutils.XMLGenerator(out = out, encoding = 'utf-8')
+        self.output = xml.sax.saxutils.XMLGenerator(out=out, encoding = 'utf-8')
         self._counter = 1
 
     def initialize(self):
@@ -234,6 +221,66 @@ class XMLSphinxIndexer(indexer.Indexer):
         self.output.endElement( u'sphinx:docset')
         self.output.endDocument()
 
+    def index(self, locales, **options):
+        """Create index records for all dimensions in the cube"""
+        # FIXME: this works only for one locale - specified in browser
+
+        # for dimension in self.cube.dimensions:
+        self.initialize()
+        for locale in locales:
+            locale_tag = get_locale_tag(locale, locales)
+            for dim_tag, dimension in enumerate(self.cube.dimensions):
+                self.index_dimension(dimension, dim_tag,
+                                     locale=locale,
+                                     locale_tag=
+                                     locale_tag,
+                                     **options)
+
+        self.finalize()
+
+    def index_dimension(self, dimension, dimension_tag, locale,
+                        locale_tag, **options):
+        """Create dimension index records."""
+
+        hierarchy = dimension.hierarchy()
+
+        # Switch browser locale
+        self.browser.set_locale(locale)
+        cell = cubes.Cell(self.cube)
+
+        label_only = bool(options.get("labels_only"))
+
+        for depth_m1, level in enumerate(hierarchy.levels):
+            depth = depth_m1 + 1
+
+            levels = hierarchy.levels[0:depth]
+            keys = [level.key.ref() for level in levels]
+            level_key = keys[-1]
+            level_label = (level.label_attribute.ref())
+
+            for record in self.browser.values(cell, dimension, depth):
+                path = [record[key] for key in keys]
+                path_string = cubes.string_from_path(path)
+
+                for attr in level.attributes:
+                    if label_only and str(attr) != str(level.label_attribute):
+                        continue
+
+                    fname = attr.ref()
+                    irecord = {
+                        "locale_tag": locale_tag,
+                        "dimension": dimension.name,
+                        "dimension_tag": dimension_tag,
+                        "level": level.name,
+                        "depth": depth,
+                        "path": path_string,
+                        "attribute": attr.name,
+                        "value": record[fname],
+                        "level_key": record[level_key],
+                        "level_label": record[level_label]
+                        }
+
+                    self.add(irecord)
     def add(self, irecord):
         """Emits index record (sphinx document) to the output XML stream."""
 
@@ -253,55 +300,3 @@ class XMLSphinxIndexer(indexer.Indexer):
 
         self.output.endElement( u'sphinx:document')
 
-class SQLSphinxIndexer(indexer.Indexer):
-    def __init__(self, browser, connection, table_name, schema = None):
-        super(SQLSphinxIndexer, self).__init__(browser)
-
-        self.connection = connection
-        self.engine = connection.engine
-        self.metadata = sqlalchemy.MetaData()
-        self.metadata.bind = self.engine
-        self.schema = schema
-        self.table_name = table_name
-
-    def initialize(self):
-        table = sqlalchemy.Table(self.table_name, self.metadata, autoload = False,
-                                 schema = self.schema)
-
-        if table.exists():
-            table.drop()
-
-        sequence = sqlalchemy.schema.Sequence(self.table_name + '_seq', optional = True)
-        table = sqlalchemy.Table(self.table_name, self.metadata, schema = self.schema)
-
-        table.append_column(Column('id', Integer, sequence, primary_key=True))
-        table.append_column(Column('dimension', String))
-        table.append_column(Column('dimension_tag', Integer))
-        table.append_column(Column('level', String))
-        table.append_column(Column('depth', Integer))
-        table.append_column(Column('path', String))
-        table.append_column(Column('attribute', String))
-        table.append_column(Column('level_key', String))
-        table.append_column(Column('level_label', String))
-
-        table.create()
-
-        self.insert = table.insert()
-        self.buffer = []
-        self.buffer_size = 1000
-
-    def add(self, irecord):
-        self.buffer.append(irecord)
-
-        if len(self.buffer) >= self.buffer_size:
-            self.flush()
-
-    def flush(self):
-        if self.buffer:
-            self.connection.execute(self.insert, self.buffer)
-            self.buffer = []
-
-        # self.insert.values(irecord)
-
-    def finalize(self):
-        self.flush()

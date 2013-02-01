@@ -98,7 +98,7 @@ class SphinxSearcher(object):
         self.host = host
         self.port = port
         self.options = options
-        self.locales = locaels or []
+        self.locales = locales or []
 
     def _dimension_tag(self, dimension):
         """Private method to get integer value from dimension name. Currently it uses
@@ -118,7 +118,7 @@ class SphinxSearcher(object):
                 locale)
 
         locale_tag = get_locale_tag(locale, self.locales)
-        sphinx = sphinxapi.SphinxClient(**self.config)
+        sphinx = sphinxapi.SphinxClient(**self.options)
 
         if self.host:
             sphinx.SetServer(self.host, self.port)
@@ -159,7 +159,7 @@ class SphinxSearcher(object):
 
 class XMLSphinxIndexer(object):
     """Create a SQL index for Sphinx"""
-    def __init__(self, browser, config=None, out=None):
+    def __init__(self, browser, options=None, out=None):
         """Creates a cube indexer - object that will provide xmlpipe2 data source for Sphinx
         search engine (http://sphinxsearch.com).
 
@@ -177,8 +177,11 @@ class XMLSphinxIndexer(object):
             * attribute value
 
         """
-        super(XMLSphinxIndexer, self).__init__(browser)
+        super(XMLSphinxIndexer, self).__init__()
 
+        self.browser = browser
+        self.cube = browser.cube
+        self.options = options
         self.output = xml.sax.saxutils.XMLGenerator(out=out, encoding = 'utf-8')
         self._counter = 1
 

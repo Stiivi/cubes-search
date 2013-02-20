@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name = "cubes_search",
-    version = '0.2.0',
+    version = '0.3.0',
 
     # Project uses reStructuredText, so ensure that the docutils get
     # installed or upgraded on the target machine

@@ -251,7 +251,7 @@ class XMLSphinxIndexer(object):
         self.browser.set_locale(locale)
         cell = cubes.Cell(self.cube)
 
-        label_only = bool(options.get("labels_only"))
+        labels_only = bool(options.get("labels_only"))
 
         for depth_m1, level in enumerate(hierarchy.levels):
             depth = depth_m1 + 1
@@ -261,14 +261,20 @@ class XMLSphinxIndexer(object):
             level_key = keys[-1]
             level_label = (level.label_attribute.ref())
 
+            if labels_only:
+                attributes = [level.label_attribute]
+            else:
+                attributes = []
+                for attr in level.attributes:
+                    if not attr.info or \
+                            (attr.info and not attr.info.get("no_search")):
+                        attributes.append(attr)
+
             for record in self.browser.values(cell, dimension, depth):
                 path = [record[key] for key in keys]
                 path_string = cubes.string_from_path(path)
 
-                for attr in level.attributes:
-                    if label_only and str(attr) != str(level.label_attribute):
-                        continue
-
+                for attr in attributes:
                     fname = attr.ref()
                     irecord = {
                         "locale_tag": locale_tag,

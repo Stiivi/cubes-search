@@ -169,7 +169,7 @@ class WhooshSearcher(object):
     def search(self, query, dimension=None, locale=None, limit=None):
         """Peform search using Whoosh. If `dimension` is set then only the one
         dimension will be searched."""
-        print "SEARCH IN %s QUERY '%s' LOCALE:%s" % (str(dimension), query, locale)
+        # print "SEARCH IN %s QUERY '%s' LOCALE:%s" % (str(dimension), query, locale)
 
         qp = QueryParser("value", schema=self.index.schema)
 
@@ -183,10 +183,10 @@ class WhooshSearcher(object):
 
         facet = FieldFacet("value")
         limit = limit or self.default_limit
-        print "QUERY: %s" % q
+        # print "QUERY: %s" % q
         results = self.searcher.search(q, limit=limit, sortedby=facet)
 
-        print "FOUND: %s results" % len(results)
+        # print "FOUND: %s results" % len(results)
         return WhooshSearchResult(self.browser, results)
 
 

@@ -38,6 +38,9 @@ class SphinxSearchResult(object):
 
     def dimension_matches(self, dimension):
         matches = []
+        if not self.matches:
+            return []
+
         for match in self.matches:
             if match["dimension"] == dimension:
                 dup = dict(match)

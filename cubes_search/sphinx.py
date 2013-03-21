@@ -98,6 +98,11 @@ class SphinxSearcher(object):
         """
         super(SphinxSearcher, self).__init__()
         self.browser = browser
+        self.logger = self.browser.logger
+        shost = host or '(default)'
+        sport = port or '(default)'
+        self.logger.debug("initializing sphinx searcher. host: %s port: %s" %
+                                                                (shost, sport))
         self.host = host
         self.port = port
         self.options = options
@@ -117,8 +122,8 @@ class SphinxSearcher(object):
     def search(self, query, dimension=None, locale=None):
         """Peform search using Sphinx. If `dimension` is set then only the one dimension will
         be searched."""
-        print "SEARCH IN %s QUERY '%s' LOCALE:%s" % (str(dimension), query,
-                locale)
+        self.logger.debug("search in '%s' for '%s', locale '%s'" %
+                (str(dimension), query, locale))
 
         locale_tag = get_locale_tag(locale, self.locales)
         sphinx = sphinxapi.SphinxClient(**self.options)
@@ -143,6 +148,15 @@ class SphinxSearcher(object):
 
         sphinx.SetSortMode(sphinxapi.SPH_SORT_ATTR_ASC, "attribute_value")
         results = sphinx.Query(query, index = str(index_name))
+
+        error = sphinx.GetLastError()
+        if error:
+            self.logger.error("sphinx error: %s" % error)
+
+        warning = sphinx.GetLastWarning()
+        if warning:
+            self.logger.warning("sphinx warning: %s" % warning)
+
 
         result = SphinxSearchResult(self.browser)
 

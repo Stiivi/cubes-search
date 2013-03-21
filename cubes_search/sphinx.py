@@ -104,7 +104,7 @@ class SphinxSearcher(object):
         self.logger.debug("initializing sphinx searcher. host: %s port: %s" %
                                                                 (shost, sport))
         self.host = host
-        self.port = port
+        self.port = int(port)
         self.options = options
         self.locales = locales or []
 
@@ -126,7 +126,7 @@ class SphinxSearcher(object):
                 (str(dimension), query, locale))
 
         locale_tag = get_locale_tag(locale, self.locales)
-        sphinx = sphinxapi.SphinxClient(**self.options)
+        sphinx = sphinxapi.SphinxClient()
 
         if self.host:
             sphinx.SetServer(self.host, self.port)
